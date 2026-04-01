@@ -109,6 +109,8 @@
       <!-- Tabs -->
       <div class="debug-tabs">
         <button class="debug-tab active" data-tab="timeline">📋 时间线</button>
+        <button class="debug-tab" data-tab="requests">📤 请求</button>
+        <button class="debug-tab" data-tab="apiLogs">🧾 API 日志</button>
         <button class="debug-tab" data-tab="thinking">💭 思考</button>
         <button class="debug-tab" data-tab="tools">🔧 工具调用</button>
         <button class="debug-tab" data-tab="stats">📊 统计</button>
@@ -124,6 +126,30 @@
             <p>等待第一次对话...</p>
           </div>
           <div class="timeline-list" id="timelineList" style="display:none"></div>
+        </div>
+
+        <!-- 请求 Tab -->
+        <div class="tab-pane" id="tab-requests">
+          <div class="requests-empty">
+            <div class="empty-icon">📤</div>
+            <p>发送消息后可查看</p>
+            <p>每轮发给大模型的请求参数</p>
+          </div>
+          <div class="requests-log" id="requestsLog" style="display:none"></div>
+        </div>
+
+        <!-- 服务端 API 日志 Tab -->
+        <div class="tab-pane" id="tab-apiLogs">
+          <div class="api-logs-toolbar">
+            <span class="api-logs-hint">实时展示服务端收到的 API 请求</span>
+            <button class="btn-text" id="clearServerLogsBtn">清空服务端日志</button>
+          </div>
+          <div class="api-logs-empty" id="apiLogsEmpty">
+            <div class="empty-icon">🧾</div>
+            <p>暂无日志</p>
+            <p>进行一次请求后会自动显示</p>
+          </div>
+          <div class="api-logs-list" id="apiLogsList" style="display:none"></div>
         </div>
 
         <!-- 思考 Tab -->

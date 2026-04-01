@@ -108,6 +108,18 @@ export async function runAgent(
         : {}),
     };
 
+    // 通知前端：本轮 LLM 请求参数（用于调试面板展示）
+    sendSSE(res, {
+      type: "request_params",
+      round,
+      model: config.model,
+      maxTokens: config.maxTokens,
+      enableThinking: config.enableThinking,
+      systemPrompt: requestParams.system,
+      tools: config.enableTools ? toolSchemas.map((t) => t.name) : [],
+      messages: conversationMessages,
+    });
+
     // ──────────────────────────────────────────────────────────
     // 流式调用 Anthropic API
     // ──────────────────────────────────────────────────────────

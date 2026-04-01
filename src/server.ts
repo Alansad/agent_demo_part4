@@ -18,16 +18,19 @@ import path from "path";
 import * as dotenv from "dotenv";
 import { runAgent, AgentConfig } from "./agent";
 import { toolSchemas } from "./tools";
+import { createApiLoggingMiddleware, ServerLogStore } from "./serverLogs";
 
 dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const serverLogStore = new ServerLogStore({ maxEntries: 300 });
 
 // ============================================================
 // 中间件
 // ============================================================
 app.use(express.json({ limit: "10mb" }));
+app.use("/api", createApiLoggingMiddleware(serverLogStore));
 app.use(express.static(path.join(__dirname, "../public")));
 
 // ============================================================
@@ -56,6 +59,31 @@ app.get("/api/config", (_req, res) => {
     hasApiKey: Boolean(process.env.LLM_API_KEY),
     baseUrlDisplay: baseUrlDisplay || "api.anthropic.com（官方）",
   });
+});
+
+/**
+ * GET /api/server-logs
+ * 返回最近的服务端 API 请求日志（内存 ring buffer）
+ */
+app.get("/api/server-logs", (_req, res) => {
+  res.json({ logs: serverLogStore.getAll() });
+});
+
+/**
+ * POST /api/server-logs/clear
+ * 清空服务端 API 请求日志
+ */
+app.post("/api/server-logs/clear", (_req, res) => {
+  serverLogStore.clear();
+  res.json({ ok: true });
+});
+
+/**
+ * GET /api/server-logs/stream
+ * SSE：实时推送服务端 API 请求日志
+ */
+app.get("/api/server-logs/stream", (_req, res) => {
+  serverLogStore.subscribe(res);
 });
 
 /**

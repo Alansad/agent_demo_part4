@@ -41,6 +41,11 @@ let settings = loadSettings();
 let isStreaming = false;
 let abortController = null;
 
+/** 服务端 API 日志流 */
+let serverLogsSource = null;
+const seenServerLogIds = new Set();
+const seenServerLogIdsOrder = [];
+
 // ================================================================
 // DOM 引用（类比 Vue 的 $refs）
 // ================================================================
@@ -60,6 +65,10 @@ const thinkingToggle= $('thinkingToggle');
 const timelineList  = $('timelineList');
 const thinkingContent = $('thinkingContent');
 const toolsLog      = $('toolsLog');
+const requestsLog   = $('requestsLog');
+const apiLogsList   = $('apiLogsList');
+const apiLogsEmpty  = $('apiLogsEmpty');
+const clearServerLogsBtn = $('clearServerLogsBtn');
 
 // Stats
 const statInputTokens  = $('stat-input-tokens');
@@ -82,6 +91,9 @@ function init() {
 
   // 绑定 UI 事件
   bindEvents();
+
+  // 订阅服务端 API 日志
+  initServerLogs();
 }
 
 function bindEvents() {
@@ -123,6 +135,130 @@ function bindEvents() {
   document.querySelectorAll('.debug-tab').forEach(tab => {
     tab.addEventListener('click', () => switchDebugTab(tab.dataset.tab));
   });
+
+  // 清空服务端日志
+  if (clearServerLogsBtn) {
+    clearServerLogsBtn.addEventListener('click', clearServerLogs);
+  }
+}
+
+// ================================================================
+// 服务端 API 日志（/api/server-logs + SSE stream）
+// ================================================================
+
+async function initServerLogs() {
+  // 先拉取一份历史（用于刷新页面后立即可见）
+  try {
+    const res = await fetch('/api/server-logs');
+    const data = await res.json();
+    if (Array.isArray(data.logs)) {
+      for (const entry of data.logs) appendServerLog(entry, { prepend: false, silent: true });
+    }
+  } catch {
+    // 忽略：不影响聊天功能
+  }
+
+  // 再用 SSE 订阅实时日志
+  try {
+    serverLogsSource = new EventSource('/api/server-logs/stream');
+    serverLogsSource.addEventListener('log', (e) => {
+      try {
+        appendServerLog(JSON.parse(e.data), { prepend: true, silent: false });
+      } catch {
+        // noop
+      }
+    });
+  } catch {
+    // EventSource 不可用时，至少保留历史拉取
+  }
+}
+
+function classifyMethod(method) {
+  const m = String(method || '').toLowerCase();
+  if (m === 'get' || m === 'head') return 'get';
+  if (m === 'post') return 'post';
+  if (m === 'put' || m === 'patch') return 'put';
+  if (m === 'delete') return 'delete';
+  return 'get';
+}
+
+function classifyStatus(entry) {
+  if (entry && entry.aborted) return 'err';
+  const s = Number(entry?.status || 0);
+  if (s >= 500) return 'err';
+  if (s >= 400) return 'warn';
+  return 'ok';
+}
+
+function appendServerLog(entry, { prepend, silent } = { prepend: true, silent: false }) {
+  if (!entry || !entry.id) return;
+  if (seenServerLogIds.has(entry.id)) return;
+  seenServerLogIds.add(entry.id);
+  seenServerLogIdsOrder.push(entry.id);
+  const MAX_SEEN_IDS = 1200;
+  while (seenServerLogIdsOrder.length > MAX_SEEN_IDS) {
+    const oldId = seenServerLogIdsOrder.shift();
+    if (oldId) seenServerLogIds.delete(oldId);
+  }
+
+  if (!apiLogsList) return;
+
+  const ts = entry.ts ? new Date(entry.ts) : new Date();
+  const timeStr = ts.toLocaleTimeString('zh-CN', { hour12: false });
+  const durationStr = (entry.durationMs || entry.durationMs === 0) ? `${entry.durationMs}ms` : '-';
+  const methodClass = classifyMethod(entry.method);
+  const statusClass = classifyStatus(entry);
+  const statusText = entry.aborted ? `${entry.status || ''} ABORT` : String(entry.status || '');
+
+  const details = { ...entry };
+  const detailText = JSON.stringify(details, null, 2);
+
+  const el = document.createElement('details');
+  el.className = 'api-log-entry';
+  el.innerHTML = `
+    <summary>
+      <span class="api-log-time">${escapeHtml(timeStr)}</span>
+      <span class="api-log-method ${methodClass}">${escapeHtml(String(entry.method || ''))}</span>
+      <span class="api-log-path">${escapeHtml(String(entry.path || ''))}</span>
+      <span class="api-log-status ${statusClass}">${escapeHtml(statusText)}</span>
+      <span class="api-log-duration">${escapeHtml(durationStr)}</span>
+      ${entry.aborted ? `<span class="api-log-aborted">ABORTED</span>` : ''}
+    </summary>
+    <pre class="api-log-detail">${escapeHtml(detailText)}</pre>
+  `;
+
+  // 限制 DOM 数量，避免页面长期运行卡顿
+  const MAX_DOM_LOGS = 200;
+  if (prepend) apiLogsList.prepend(el);
+  else apiLogsList.appendChild(el);
+  while (apiLogsList.children.length > MAX_DOM_LOGS) {
+    apiLogsList.removeChild(apiLogsList.lastElementChild);
+  }
+
+  // 显示列表，隐藏空态
+  apiLogsList.style.display = '';
+  if (apiLogsEmpty) apiLogsEmpty.style.display = 'none';
+
+  if (!silent) {
+    // 不强制切 Tab，避免影响用户操作；只在用户当前就在该 Tab 时保持更新即可
+  }
+}
+
+async function clearServerLogs() {
+  try {
+    await fetch('/api/server-logs/clear', { method: 'POST' });
+  } catch {
+    showToast('清空失败：无法连接服务端', 'error');
+    return;
+  }
+
+  seenServerLogIds.clear();
+  seenServerLogIdsOrder.length = 0;
+  if (apiLogsList) {
+    apiLogsList.innerHTML = '';
+    apiLogsList.style.display = 'none';
+  }
+  if (apiLogsEmpty) apiLogsEmpty.style.display = '';
 }
 
 async function fetchServerConfig() {
@@ -304,6 +440,14 @@ async function startStreaming() {
  */
 function handleSSEEvent(event, bubble, toolEntries, onText) {
   switch (event.type) {
+
+    // ── 请求参数 ─────────────────────────────────────────────────
+    case 'request_params': {
+      ensureDebugVisible('requestsLog');
+      requestsLog.appendChild(createRequestEntry(event));
+      switchDebugTab('requests');
+      break;
+    }
 
     // ── 轮次开始 ─────────────────────────────────────────────────
     case 'round_start': {
@@ -635,6 +779,52 @@ function createToolEntry(id, name, input) {
   return entry;
 }
 
+function createRequestEntry(event) {
+  const entry = document.createElement('div');
+  entry.className = 'tool-entry';
+
+  const toolsHtml = event.tools?.length > 0
+    ? event.tools.map(t => `<span class="request-tool-tag">${escapeHtml(t)}</span>`).join('')
+    : '<span style="color:var(--text-muted)">（未启用）</span>';
+
+  const messagesHtml = (event.messages || []).map(m => {
+    const raw = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+    const preview = raw.length > 120 ? raw.slice(0, 120) + '…' : raw;
+    return `<div class="request-message">
+      <span class="request-msg-role ${m.role}">${m.role}</span>
+      <span class="request-msg-content">${escapeHtml(preview)}</span>
+    </div>`;
+  }).join('');
+
+  entry.innerHTML = `
+    <div class="tool-entry-header" onclick="toggleToolEntry(this.parentElement)">
+      <span style="color:var(--accent-blue)">📤</span>
+      <span class="tool-name">Round ${event.round} 请求</span>
+      <span class="tool-status-badge" style="background:rgba(79,156,249,0.12);color:var(--accent-blue);border-color:rgba(79,156,249,0.3)">${escapeHtml(event.model)}</span>
+      <span style="color:var(--text-muted);font-size:11px">${event.messages?.length ?? 0} 条消息</span>
+      <span class="tool-chevron">▶</span>
+    </div>
+    <div class="tool-entry-body">
+      <div class="tool-section">
+        <div class="tool-section-label">⚙️ 模型配置</div>
+        <pre class="tool-json">model:      ${escapeHtml(event.model)}
+maxTokens:  ${event.maxTokens}
+thinking:   ${event.enableThinking}
+system:     ${event.systemPrompt ? escapeHtml(event.systemPrompt.slice(0, 80)) + (event.systemPrompt.length > 80 ? '…' : '') : '（默认）'}</pre>
+      </div>
+      <div class="tool-section">
+        <div class="tool-section-label">🔧 工具列表（${event.tools?.length ?? 0} 个）</div>
+        <div class="request-tools">${toolsHtml}</div>
+      </div>
+      <div class="tool-section">
+        <div class="tool-section-label">💬 Messages（${event.messages?.length ?? 0} 条）</div>
+        <div class="request-messages">${messagesHtml}</div>
+      </div>
+    </div>
+  `;
+  return entry;
+}
+
 function addToolResult(entry, result, elapsed) {
   const resultSection = entry.querySelector('.tool-result-text');
   if (resultSection) {
@@ -673,7 +863,7 @@ function ensureDebugVisible(elementId) {
     // 隐藏对应的 empty state
     const parent = el.parentElement;
     if (parent) {
-      ['timeline-empty', 'thinking-empty', 'tools-empty'].forEach(cls => {
+      ['timeline-empty', 'requests-empty', 'api-logs-empty', 'thinking-empty', 'tools-empty'].forEach(cls => {
         const empty = parent.querySelector(`.${cls}`);
         if (empty) empty.style.display = 'none';
       });
@@ -734,6 +924,16 @@ function clearDebugPanel() {
   toolsLog.innerHTML = '';
   toolsLog.style.display = 'none';
   document.querySelector('.tools-empty') && (document.querySelector('.tools-empty').style.display = '');
+
+  requestsLog.innerHTML = '';
+  requestsLog.style.display = 'none';
+  document.querySelector('.requests-empty') && (document.querySelector('.requests-empty').style.display = '');
+
+  if (apiLogsList) {
+    apiLogsList.innerHTML = '';
+    apiLogsList.style.display = 'none';
+  }
+  if (apiLogsEmpty) apiLogsEmpty.style.display = '';
 }
 
 function setSendState(enabled) {
