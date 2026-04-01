@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚡ Agent Demo — Week 5-6</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ╔══════════════════════════════════════════╗ -->
+  <!-- ║            顶部标题栏                    ║ -->
+  <!-- ╚══════════════════════════════════════════╝ -->
+  <header class="app-header">
+    <div class="header-left">
+      <span class="header-logo">⚡</span>
+      <div class="header-titles">
+        <h1 class="header-title">Agent Demo</h1>
+        <span class="header-subtitle">Week 5-6 · 流式对话 + 可视化调试面板</span>
+      </div>
+    </div>
+
+    <div class="header-center">
+      <!-- 状态指示器 -->
+      <div class="status-bar" id="statusBar">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">就绪</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <!-- 快捷开关 -->
+      <label class="toggle-switch" title="开启/关闭工具调用">
+        <input type="checkbox" id="toolsToggle" checked />
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">🔧 工具</span>
+      </label>
+      <label class="toggle-switch" title="开启/关闭扩展思考（消耗更多 token）">
+        <input type="checkbox" id="thinkingToggle" />
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">💭 思考</span>
+      </label>
+      <!-- 设置按钮 -->
+      <button class="btn-icon" id="settingsBtn" title="设置 API Key、模型等">
+        ⚙️
+      </button>
+      <!-- 清空对话 -->
+      <button class="btn-icon" id="clearBtn" title="清空对话历史">
+        🗑️
+      </button>
+    </div>
+  </header>
+
+  <!-- ╔══════════════════════════════════════════╗ -->
+  <!-- ║            主内容区域（双栏布局）         ║ -->
+  <!-- ╚══════════════════════════════════════════╝ -->
+  <main class="app-main">
+
+    <!-- ── 左栏：对话界面 ────────────────────────── -->
+    <section class="chat-panel">
+      <!-- 消息列表 -->
+      <div class="chat-messages" id="chatMessages">
+        <!-- 欢迎消息 -->
+        <div class="welcome-message">
+          <div class="welcome-icon">🤖</div>
+          <h2>你好！我是 Agent Demo</h2>
+          <p>这是 Week 5-6 的教学项目，展示：</p>
+          <ul>
+            <li>📡 <strong>SSE 流式输出</strong> — 逐 token 实时渲染</li>
+            <li>🔧 <strong>工具调用</strong> — 时间、计算、天气、知识库</li>
+            <li>💭 <strong>思考过程</strong> — 可视化 Claude 的推理链</li>
+          </ul>
+          <div class="welcome-hints">
+            <p>试着问：</p>
+            <button class="hint-btn" onclick="fillInput('现在几点了？帮我算一下 2 的 16 次方是多少')">🕐 时间 + 计算</button>
+            <button class="hint-btn" onclick="fillInput('北京和上海的天气怎么样？哪个城市更适合户外活动？')">🌤️ 多工具调用</button>
+            <button class="hint-btn" onclick="fillInput('帮我搜索一下 ReAct 范式和 Function Calling 的区别')">📚 知识搜索</button>
+            <button class="hint-btn" onclick="fillInput('我想学习 Agent 开发，请给我制定一个学习计划')">🎯 自由对话</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 输入区域 -->
+      <div class="chat-input-area">
+        <div class="input-wrapper">
+          <textarea
+            id="userInput"
+            placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
+            rows="1"
+          ></textarea>
+          <button class="send-btn" id="sendBtn" title="发送 (Enter)">
+            <span class="send-icon">↑</span>
+          </button>
+        </div>
+        <div class="input-footer">
+          <span class="input-hint">模型：<span id="currentModel">加载中...</span></span>
+          <span class="input-hint" id="tokenHint"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── 右栏：调试面板 ──────────────────────────── -->
+    <aside class="debug-panel">
+      <div class="debug-header">
+        <span>🔍 调试面板</span>
+        <button class="btn-text" id="clearDebugBtn">清空</button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="debug-tabs">
+        <button class="debug-tab active" data-tab="timeline">📋 时间线</button>
+        <button class="debug-tab" data-tab="thinking">💭 思考</button>
+        <button class="debug-tab" data-tab="tools">🔧 工具调用</button>
+        <button class="debug-tab" data-tab="stats">📊 统计</button>
+      </div>
+
+      <!-- Tab 内容 -->
+      <div class="debug-content">
+
+        <!-- 时间线 Tab -->
+        <div class="tab-pane active" id="tab-timeline">
+          <div class="timeline-empty">
+            <div class="empty-icon">⏳</div>
+            <p>等待第一次对话...</p>
+          </div>
+          <div class="timeline-list" id="timelineList" style="display:none"></div>
+        </div>
+
+        <!-- 思考 Tab -->
+        <div class="tab-pane" id="tab-thinking">
+          <div class="thinking-empty">
+            <div class="empty-icon">💭</div>
+            <p>开启右上角「💭 思考」开关</p>
+            <p>可以看到 Claude 的推理过程</p>
+          </div>
+          <div class="thinking-content" id="thinkingContent" style="display:none"></div>
+        </div>
+
+        <!-- 工具调用 Tab -->
+        <div class="tab-pane" id="tab-tools">
+          <div class="tools-empty">
+            <div class="empty-icon">🔧</div>
+            <p>工具调用记录将显示在这里</p>
+          </div>
+          <div class="tools-log" id="toolsLog" style="display:none"></div>
+        </div>
+
+        <!-- 统计 Tab -->
+        <div class="tab-pane" id="tab-stats">
+          <div class="stats-grid" id="statsGrid">
+            <div class="stat-card">
+              <div class="stat-value" id="stat-input-tokens">0</div>
+              <div class="stat-label">输入 Token</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-output-tokens">0</div>
+              <div class="stat-label">输出 Token</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-rounds">0</div>
+              <div class="stat-label">LLM 调用轮次</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-tool-calls">0</div>
+              <div class="stat-label">工具调用次数</div>
+            </div>
+            <div class="stat-card stat-card-wide">
+              <div class="stat-value" id="stat-duration">-</div>
+              <div class="stat-label">响应耗时</div>
+            </div>
+            <div class="stat-card stat-card-wide">
+              <div class="stat-value" id="stat-model">-</div>
+              <div class="stat-label">使用模型</div>
+            </div>
+          </div>
+          <div class="round-stats" id="roundStats"></div>
+        </div>
+
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ╔══════════════════════════════════════════╗ -->
+  <!-- ║            设置面板（抽屉）               ║ -->
+  <!-- ╚══════════════════════════════════════════╝ -->
+  <div class="settings-overlay" id="settingsOverlay"></div>
+  <div class="settings-drawer" id="settingsDrawer">
+    <div class="settings-header">
+      <h2>⚙️ 设置</h2>
+      <button class="btn-icon" id="closeSettingsBtn">✕</button>
+    </div>
+
+    <div class="settings-body">
+      <div class="settings-section">
+        <h3>🔑 API 连接状态</h3>
+        <p class="form-hint" style="margin-bottom:12px">API Key 和地址从服务端 <code>.env</code> 文件读取，不经过浏览器。</p>
+
+        <div class="form-group">
+          <label>API Key</label>
+          <div class="env-status-row" id="envApiKeyStatus">
+            <span class="env-status-dot"></span>
+            <span class="env-status-text">加载中...</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>API 地址</label>
+          <div class="env-status-row" id="envBaseUrlStatus">
+            <span class="env-status-dot env-ok"></span>
+            <span class="env-status-text" id="envBaseUrlText">加载中...</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>模型（来自 <code>LLM_MODEL</code>）</label>
+          <div class="env-status-row">
+            <span class="env-status-dot env-ok"></span>
+            <span class="env-status-text" id="envModelText">加载中...</span>
+          </div>
+          <p class="form-hint" style="margin-top:6px">修改模型请编辑 <code>.env</code> 文件后重启服务</p>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>🤖 Agent 配置</h3>
+
+        <div class="form-group">
+          <label>System Prompt（可选）</label>
+          <textarea
+            id="systemPrompt"
+            rows="4"
+            placeholder="留空使用默认 Prompt&#10;&#10;示例：你是一个专业的数学家，用中文回答所有问题"
+          ></textarea>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>ℹ️ 关于</h3>
+        <div class="about-text">
+          <p>📚 学习阶段：<strong>Week 5-6</strong></p>
+          <p>🎯 核心知识点：</p>
+          <ul>
+            <li>SSE 流式输出（Server-Sent Events）</li>
+            <li>Anthropic SDK 工具调用循环</li>
+            <li>ReAct 范式（Reason + Act）</li>
+            <li>前端调试面板可视化</li>
+          </ul>
+          <p>🔧 可用工具：时间、计算、天气、知识库</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-footer">
+      <button class="btn-primary" id="saveSettingsBtn">保存设置</button>
+      <button class="btn-secondary" id="cancelSettingsBtn">取消</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
